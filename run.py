@@ -79,7 +79,7 @@ async def process_move(websocket, request_data):
     rows = board.count('\n') - 1
     
     # Analiza el tablero en busca de 2 o mas piezas que tengan el mismo color
-    move_col = analyze_board(board, columns, rows)
+    move_col = analyze_board(board, columns, rows, request_data['data']['side'])
     
     # Si no hay movimiento optimo simplemente hara un movimiento al azar
     if move_col is None:
@@ -87,17 +87,17 @@ async def process_move(websocket, request_data):
     
     await send(websocket, 'move', {'game_id': game_id, 'turn_token': turn_token, 'col': move_col})
 
-def analyze_board(board, columns, rows):
+def analyze_board(board, columns, rows, player):
     # Analiza el tablero en busca del movimiento optimo
     
     for col in range(columns):
-        if is_optimal_move(board, col, rows, columns):
+        if is_optimal_move(board, col, rows, columns,player):
             return col
     
     # Si no hay tal movimiento no regresa nada
     return None
 
-def is_optimal_move(board, col, rows, columns):
+def is_optimal_move(board, col, rows, columns, player):
     # Esto revisa si el movimiento en dicha columna es optimo en realidad
     if col < 0 or col >= columns:
         return False
@@ -108,14 +108,16 @@ def is_optimal_move(board, col, rows, columns):
     # Cuenta de manera consecutiva las piezas del mismo color en la columna especificada
     count = 0
     for row in range(rows - 1, -1, -1):  # Empieza desde el fondo de la columna hasta el principio
-        if board[row * (columns + 1) + col + 2] == 'N':  # N representaria a las piezas del mismo color
-            count += 1
-        else:
-            count = 0  # Esto resetea el contador a 0 si hay diferentes colores
-        
-        if count >= 2 and randint(0, 1):  # Esto detecta el movimiento optimo aunque con 50% de probalidades de pasar
-            return True
-    
+        color_ficha = board[row * (columns + 1) + col + 2] #Este comando recibe todo del por parte de analyze_board y sirve para analizar el color de la ficha del jugador
+        if player == 'N' and color_ficha == 'N':
+            count +=1   
+        elif player == 'S' and color_ficha == 'S':
+            count +=1
+        else: 
+            count = 0
+
+        if count >= 2 and randint(0, 1):  # Esto detecta el movimiento óptimo aunque con 50% de probabilidad de pasar
+                return True
     return False  # Regresa a nada si no hay tal movimiento
 
 if __name__ == '__main__':
