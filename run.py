@@ -5,6 +5,7 @@ import sys
 import websockets
 import time
 import unittest
+from asyncio import test_utils
 from unittest import mock
 
 async def send(websocket, action, data):
@@ -37,9 +38,10 @@ class TestBot(unittest.TestCase):
         # Cerrar el bucle de eventos asyncio
         self.loop.close()
 
-    def test_send(self):
+    @test_utils.run_until_complete
+    async def test_send(self):
         # Ejecutar el bucle de eventos asíncronos para completar la tarea asincrónica
-        asyncio.run(test_send(mock.AsyncMock(), 'move', {'game_id': '123', 'turn_token': '456', 'col': 2}))
+        await test_send(mock.AsyncMock(), 'move', {'game_id': '123', 'turn_token': '456', 'col': 2})
     
     @mock.patch('play.send')
     async def test_handle_challenge(self, mock_send):
@@ -68,7 +70,12 @@ class TestBot(unittest.TestCase):
         mock_send.assert_called_once_with(websocket_mock, 'kill', {'game_id': '123', 'turn_token': '456', 'row': 1})
 
 if __name__ == '__main__':
-    unittest.main()
+    # Ejecutar las pruebas y mostrar un mensaje en la consola si todas pasan
+    result = unittest.TextTestRunner().run(unittest.TestLoader().loadTestsFromTestCase(TestBot))
+    if result.wasSuccessful():
+        print("Todas las pruebas pasaron correctamente.")
+    else:
+        print("Algunas pruebas fallaron.")
 
 async def start(auth_token):
     uri = "ws://codechallenge-server-f4118f8ea054.herokuapp.com/ws?token={}".format(auth_token)
@@ -129,6 +136,44 @@ async def process_move(websocket, request_data):
         rows = board.count('\n') - 1
     except ValueError as e:
         print(f'Error al obtener las dimensiones del tablero: {e}')
+    
+def analyze_board(board, columns, rows, player):
+    # Analiza el tablero en busca del movimiento optimo
+    
+    for col in range(columns):
+        if is_optimal_move(board, col, rows, columns,player):
+            return col
+    
+    # Si no hay tal movimiento no regresa nada
+    return None
+
+def is_optimal_move(board, col, rows, columns, player):
+    # Esto revisa si el movimiento en dicha columna es optimo en realidad
+    if col < 0 or col >= columns:
+        return False
+    
+    # Verifica si hay espacio suficiente en la columna para colocar la ficha
+    if board[col + 2] != ' ':
+        return False
+    # Cuenta de manera consecutiva las piezas del mismo color en la columna especificada
+    count = 0
+    for row in range(rows - 1, -1, -1):  # Empieza desde el fondo de la columna hasta el principio
+        color_ficha = board[row * (columns + 1) + col + 2] #Este comando recibe todo del por parte de analyze_board y sirve para analizar el color de la ficha del jugador
+        if player == 'N' and color_ficha == 'N':
+            count +=1   
+        elif player == 'S' and color_ficha == 'S':
+            count +=1
+        else: 
+            count = 0
+
+        if count >= 2 and randint(0, 1):  # Esto detecta el movimiento óptimo aunque con 50% de probabilidad de pasar
+                return True
+        
+        # Verifica si cortaría sus propias fichas
+        if count >= 2 and row - 1 >= 0 and board[(row - 1) * (columns + 1) + col + 2] == ' ':
+            return False
+        if count >= 2:  # Retorna True si hay al menos 2 fichas del mismo color en la columna
+            return True
 
 if __name__ == '__main__':
     if len(sys.argv) >= 2:
