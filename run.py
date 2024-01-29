@@ -149,7 +149,6 @@ async def process_your_turn(websocket, request_data):
 
 async def process_move_with_timeout(websocket, request_data):
     game_id = request_data['data']['game_id']
-    turn_token = request_data['data']['turn_token']
     remaining_moves = request_data['data']['remaining_moves']
     
     # Verificar si quedan movimientos
@@ -183,9 +182,6 @@ async def process_move(websocket, request_data):
         await send(websocket, 'kill', {'game_id': game_id, 'turn_token': turn_token, 'row': 1})
         return
 
-    # Consigue el numero de columnas y filas que hay en el tablero
-    columns = board.find('|', 1) - 1
-    rows = board.count('\n') - 1
     
     # Analiza el tablero en busca de 2 o mas piezas que tengan el mismo color
     move_col = analyze_board(board, columns, rows, player)
@@ -215,66 +211,62 @@ def analyze_board(board, columns, rows, player):
     return None
 
 def is_optimal_move(board, col, rows, columns, player):
-    # Esto revisa si el movimiento en dicha columna es optimo en realidad
     if col < 0 or col >= columns:
         return False
-    
-    # Verifica si hay espacio suficiente en la columna para colocar la ficha
-    if board[col + 2] != ' ':
-        return False
-    # Cuenta de manera consecutiva las piezas del mismo color en la columna especificada
-    count = 0
-    for row in range(rows - 1, -1, -1):  # Empieza desde el fondo de la columna hasta el principio
-        color_ficha = board[row * (columns + 1) + col + 2] #Este comando recibe todo del por parte de analyze_board y sirve para analizar el color de la ficha del jugador
-        if player == 'N' and color_ficha == 'N':
-            count +=1   
-        elif player == 'S' and color_ficha == 'S':
-            count +=1
-        else: 
-            count = 0
 
-        if count >= 2 and randint(0, 1):  # Esto detecta el movimiento óptimo aunque con 50% de probabilidad de pasar
-                return True
-        
-        # Verifica si cortaría sus propias fichas
-        if count >= 2 and row - 1 >= 0 and board[(row - 1) * (columns + 1) + col + 2] == ' ':
-            return False
-        if count >= 2:  # Retorna True si hay al menos 2 fichas del mismo color en la columna
+    # Dividir el tablero en filas
+    rows_data = board.split('\n')
+
+    # Verificar si la columna tiene espacio vacío en alguna fila
+    for row in range(rows):
+        if rows_data[0][col * 6 + 3] == ' ':
             return True
+
+    return False
         
 
 def choose_kill_action(board, columns, rows, player, enemy_player):
-    # Iterar sobre las filas para verificar si hay una fila que el enemigo está a punto de completar
     for row in range(rows):
-        if should_kill_row(board, columns, rows, row, 0, enemy_player, 2):
+        if should_kill_row(board, columns, rows, row, 0, enemy_player, player, 2):
             return {'row': row}
 
-    # Iterar sobre las columnas para verificar si hay una columna que el enemigo está a punto de completar
     for col in range(columns):
-        if should_kill_column(board, columns, rows, 0, col, enemy_player, 2):
+        if should_kill_column(board, columns, rows, 0, col, enemy_player, player, 2):
             return {'col': col}
 
-    # Si no hay necesidad de matar una fila o columna, devolver None
+    # Si no hay necesidad de matar una fila o columna, intenta completar tus propias 4 fichas
+    for col in range(columns):
+        if is_optimal_move(board, col, rows, columns, player):
+            return {'col': col}
+
     return None
 
-def prefer_kill_row_over_column(player):
-    return True if player == 'N' else False
-    
-def should_kill_row(board, columns, rows, row, col, player, consecutive_count):
+def should_kill_row(board, columns, rows, row, col, enemy_player, side, consecutive_count):
     # Verifica si es necesario matar la fila
+    if row + consecutive_count > rows:
+        return False  # Evitar desbordamiento de filas
+    
+    # Verifica si es necesario matar la fila del enemigo
     count = 0
     for c in range(col, col + consecutive_count):
-        if c < columns and board[row * (columns + 1) + c + 2] == player:
+        if c < columns and board[row * (columns + 1) + c + 2] == enemy_player:
             count += 1
-    return count == consecutive_count
 
-def should_kill_column(board, columns, rows, row, col, player, consecutive_count):
-    # Verifica si es necesario matar la columna
+    # Mata la fila si el lado es el mismo que el del bot y el enemigo está presente
+    return count == consecutive_count and side == 'N' if enemy_player == 'S' else 'S'
+
+def should_kill_column(board, columns, rows, row, col, enemy_player, side, consecutive_count):
+    if columns + consecutive_count > rows:
+        return False # Evitar desbordamiento de columnas
+    
+    # Verifica si es necesario matar la columna del enemigo
     count = 0
     for r in range(row, row + consecutive_count):
-        if r < rows and board[r * (columns + 1) + col + 2] == player:
+        if r < rows and board[r * (columns + 1) + col + 2] == enemy_player:
             count += 1
-    return count == consecutive_count
+
+    # Mata la columna si el lado es el mismo que el del bot y el enemigo está presente
+    return count == consecutive_count and side == 'N' if enemy_player == 'S' else 'S'
 
 if __name__ == '__main__':
     if len(sys.argv) >= 2:
