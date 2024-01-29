@@ -68,6 +68,29 @@ class TestBot(unittest.TestCase):
         # Verificar que la función send simulada se llamó con los argumentos correctos
         await process_move(websocket_mock, {'data': {'game_id': '123', 'turn_token': '456', 'board': '...', 'side': 'N'}})
         mock_send.assert_called_once_with(websocket_mock, 'kill', {'game_id': '123', 'turn_token': '456', 'row': 1})
+    
+    async def test_is_optimal_move(self):
+        # Prueba asincrónica para is_optimal_move
+        # Simula un tablero donde el movimiento en la columna 2 sería óptimo para el jugador 'N'
+        board = '... | N | S | N | ...\n... | S | N | S | ...'
+        columns = 5
+        rows = 2
+        player = 'N'
+        
+        result = await is_optimal_move(board, 2, rows, columns, player)
+        self.assertTrue(result)
+
+
+    async def test_analyze_board(self):
+        # Prueba asincrónica para analyze_board  
+        # Simula un tablero donde el movimiento óptimo sería en la columna 3 para el jugador 'S'
+        board = '... | N | S | N | ...\n... | S | N | S | ...'
+        columns = 5
+        rows = 2
+        player = 'S'
+        
+        result = await analyze_board(board, columns, rows, player)
+        self.assertEqual(result, 3)
 
 if __name__ == '__main__':
     # Ejecutar las pruebas y mostrar un mensaje en la consola si todas pasan
@@ -126,16 +149,30 @@ async def process_your_turn(websocket, request_data):
     await process_move(websocket, request_data)
 
 async def process_move(websocket, request_data):
+    
     game_id = request_data['data']['game_id']
     turn_token = request_data['data']['turn_token']
     board = request_data['data']['board']
-    player = request_data['data']['side']  # Corregir para obtener el jugador actual
 
+    # Revisa que las dimensiones del tablero sean correctas, sino tira un error en el mensaje    
     try:
         columns = board.find('|', 1) - 1
         rows = board.count('\n') - 1
     except ValueError as e:
         print(f'Error al obtener las dimensiones del tablero: {e}')
+
+    # Consigue el numero de columnas y filas que hay en el tablero
+    columns = board.find('|', 1) - 1
+    rows = board.count('\n') - 1
+    
+    # Analiza el tablero en busca de 2 o mas piezas que tengan el mismo color
+    move_col = analyze_board(board, columns, rows, request_data['data']['side'])
+    
+    # Si no hay movimiento optimo simplemente hara un movimiento al azar
+    if move_col is None:
+        move_col = randint(0, columns)
+    
+    await send(websocket, 'move', {'game_id': game_id, 'turn_token': turn_token, 'col': move_col})
     
 def analyze_board(board, columns, rows, player):
     # Analiza el tablero en busca del movimiento optimo
