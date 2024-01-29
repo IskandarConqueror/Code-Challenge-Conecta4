@@ -91,6 +91,17 @@ class TestBot(unittest.TestCase):
         result = await analyze_board(board, columns, rows, player)
         self.assertEqual(result, 3)
 
+    async def test_choose_kill_action(self):
+        # Tablero donde la acción de matar debería ser en la fila 1 para el jugador 'S'
+        board = '... | N | S | N | ...\n... | S | N | S | ...'
+        columns = 5
+        rows = 2
+        player = 'S'
+        enemy_player = 'N'
+        
+        result = await choose_kill_action(board, columns, rows, player, enemy_player)
+        self.assertEqual(result, {'row': 1})
+
 if __name__ == '__main__':
     # Ejecutar las pruebas y mostrar un mensaje en la consola si todas pasan
     result = unittest.TextTestRunner().run(unittest.TestLoader().loadTestsFromTestCase(TestBot))
@@ -182,12 +193,9 @@ async def process_move(websocket, request_data):
         await send(websocket, 'kill', {'game_id': game_id, 'turn_token': turn_token, 'row': 1})
         return
 
-    
-    # Analiza el tablero en busca de 2 o mas piezas que tengan el mismo color
     move_col = analyze_board(board, columns, rows, player)
     
     if move_col is not None:
-        # Si hay un movimiento óptimo, realiza el movimiento
         await send(websocket, 'move', {'game_id': game_id, 'turn_token': turn_token, 'col': move_col})
     else:
         # Si no hay un movimiento óptimo, decide si matar una fila, columna o diagonal
@@ -242,7 +250,6 @@ def choose_kill_action(board, columns, rows, player, enemy_player):
     return None
 
 def should_kill_row(board, columns, rows, row, col, enemy_player, side, consecutive_count):
-    # Verifica si es necesario matar la fila
     if row + consecutive_count > rows:
         return False  # Evitar desbordamiento de filas
     
@@ -265,7 +272,6 @@ def should_kill_column(board, columns, rows, row, col, enemy_player, side, conse
         if r < rows and board[r * (columns + 1) + col + 2] == enemy_player:
             count += 1
 
-    # Mata la columna si el lado es el mismo que el del bot y el enemigo está presente
     return count == consecutive_count and side == 'N' if enemy_player == 'S' else 'S'
 
 if __name__ == '__main__':
