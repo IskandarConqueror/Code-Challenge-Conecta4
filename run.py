@@ -217,7 +217,7 @@ def is_optimal_move(board, col, rows, columns, player):
     # Dividir el tablero en filas
     rows_data = board.split('\n')
 
-    # Verificar si la columna tiene espacio vacío en alguna fila
+    # Verificar si la columna tiene espacio vacío en alguna fila, ademas usando esto se prioriza la fila y columna 0, es decir la primera
     for row in range(rows):
         if rows_data[0][col * 6 + 3] == ' ':
             return True
