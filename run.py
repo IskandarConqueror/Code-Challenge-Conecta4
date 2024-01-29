@@ -5,8 +5,8 @@ import sys
 import websockets
 import time
 import unittest
-from asyncio import test_utils
 from unittest import mock
+from asyncio import wait_for, TimeoutError
 
 async def send(websocket, action, data):
     message = json.dumps({
@@ -29,16 +29,15 @@ async def test_send(websocket, action, data):
 
 class TestBot(unittest.TestCase):
 
-    async def asyncSetUp(self):
+    async def setUp(self):
         # Configurar el bucle de eventos asyncio
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
 
-    async def asyncTearDown(self):
+    async def tearDown(self):
         # Cerrar el bucle de eventos asyncio
         self.loop.close()
 
-    @test_utils.run_until_complete
     async def test_send(self):
         # Ejecutar el bucle de eventos asíncronos para completar la tarea asincrónica
         await test_send(mock.AsyncMock(), 'move', {'game_id': '123', 'turn_token': '456', 'col': 2})
@@ -148,31 +147,62 @@ async def handle_accept_challenge(request_data):
 async def process_your_turn(websocket, request_data):
     await process_move(websocket, request_data)
 
+async def process_move_with_timeout(websocket, request_data):
+    game_id = request_data['data']['game_id']
+    turn_token = request_data['data']['turn_token']
+    remaining_moves = request_data['data']['remaining_moves']
+    
+    # Verificar si quedan movimientos
+    if remaining_moves <= 0:
+        print(f"No quedan movimientos. Juego {game_id} terminado.")
+        return
+    
+    try:
+        # Esperar un máximo de 3 segundos para la ejecución de process_move
+        await wait_for(process_move(websocket, request_data), timeout=3.0)
+    except TimeoutError:
+        print(f"Tiempo de ejecución agotado para el movimiento en el juego {game_id}.")
+
+# Reemplaza la llamada a process_move en process_your_turn con process_move_with_timeout
+async def process_your_turn(websocket, request_data):
+    await process_move_with_timeout(websocket, request_data)
+
 async def process_move(websocket, request_data):
     
     game_id = request_data['data']['game_id']
     turn_token = request_data['data']['turn_token']
     board = request_data['data']['board']
+    player = request_data['data']['side']
 
-    # Revisa que las dimensiones del tablero sean correctas, sino tira un error en el mensaje    
     try:
+        # Revisa las dimensiones del tablero
         columns = board.find('|', 1) - 1
         rows = board.count('\n') - 1
     except ValueError as e:
         print(f'Error al obtener las dimensiones del tablero: {e}')
+        await send(websocket, 'kill', {'game_id': game_id, 'turn_token': turn_token, 'row': 1})
+        return
 
     # Consigue el numero de columnas y filas que hay en el tablero
     columns = board.find('|', 1) - 1
     rows = board.count('\n') - 1
     
     # Analiza el tablero en busca de 2 o mas piezas que tengan el mismo color
-    move_col = analyze_board(board, columns, rows, request_data['data']['side'])
+    move_col = analyze_board(board, columns, rows, player)
     
-    # Si no hay movimiento optimo simplemente hara un movimiento al azar
-    if move_col is None:
-        move_col = randint(0, columns)
-    
-    await send(websocket, 'move', {'game_id': game_id, 'turn_token': turn_token, 'col': move_col})
+    if move_col is not None:
+        # Si hay un movimiento óptimo, realiza el movimiento
+        await send(websocket, 'move', {'game_id': game_id, 'turn_token': turn_token, 'col': move_col})
+    else:
+        # Si no hay un movimiento óptimo, decide si matar una fila, columna o diagonal
+        kill_action = choose_kill_action(board, columns, rows, player, 'N' if player == 'S' else 'S')
+        
+        # Verifica si choose_kill_action devuelve None
+        if kill_action is not None:
+            await send(websocket, 'kill', {'game_id': game_id, 'turn_token': turn_token, **kill_action})
+        else:
+            print("No hay acción de matar válida.")
+            await send(websocket, 'kill', {'game_id': game_id, 'turn_token': turn_token, 'row': 1})
     
 def analyze_board(board, columns, rows, player):
     # Analiza el tablero en busca del movimiento optimo
@@ -211,6 +241,40 @@ def is_optimal_move(board, col, rows, columns, player):
             return False
         if count >= 2:  # Retorna True si hay al menos 2 fichas del mismo color en la columna
             return True
+        
+
+def choose_kill_action(board, columns, rows, player, enemy_player):
+    # Iterar sobre las filas para verificar si hay una fila que el enemigo está a punto de completar
+    for row in range(rows):
+        if should_kill_row(board, columns, rows, row, 0, enemy_player, 2):
+            return {'row': row}
+
+    # Iterar sobre las columnas para verificar si hay una columna que el enemigo está a punto de completar
+    for col in range(columns):
+        if should_kill_column(board, columns, rows, 0, col, enemy_player, 2):
+            return {'col': col}
+
+    # Si no hay necesidad de matar una fila o columna, devolver None
+    return None
+
+def prefer_kill_row_over_column(player):
+    return True if player == 'N' else False
+    
+def should_kill_row(board, columns, rows, row, col, player, consecutive_count):
+    # Verifica si es necesario matar la fila
+    count = 0
+    for c in range(col, col + consecutive_count):
+        if c < columns and board[row * (columns + 1) + c + 2] == player:
+            count += 1
+    return count == consecutive_count
+
+def should_kill_column(board, columns, rows, row, col, player, consecutive_count):
+    # Verifica si es necesario matar la columna
+    count = 0
+    for r in range(row, row + consecutive_count):
+        if r < rows and board[r * (columns + 1) + col + 2] == player:
+            count += 1
+    return count == consecutive_count
 
 if __name__ == '__main__':
     if len(sys.argv) >= 2:
